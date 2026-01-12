@@ -36,6 +36,7 @@ from skills.lib.workflow.formatters import (
 )
 from skills.lib.workflow.cli import add_qr_args
 from skills.planner.shared.resources import get_mode_script_path, get_resource
+from skills.lib.beads import is_beads_available
 
 
 # Module path for -m invocation
@@ -288,6 +289,7 @@ STEPS = {
             "Write plan with Code Intent (no diffs yet).",
             "Developer fills diffs in step 8.",
         ],
+        "beads_integration": True,  # Flag for post-step beads tracking
     },
     # Review steps (6-13)
     6: {
@@ -450,6 +452,47 @@ def get_step_guidance(step: int, total_steps: int,
             "Write plan using this format:",
             "",
             plan_format,
+        ])
+
+    # Add beads integration guidance for step 5
+    if info.get("beads_integration") and is_beads_available():
+        actions.extend([
+            "",
+            "═══════════════════════════════════════════════════════════",
+            "OPTIONAL: BEADS ISSUE TRACKING",
+            "═══════════════════════════════════════════════════════════",
+            "",
+            "Beads (bd) is available in this project. After writing the plan,",
+            "you may optionally create tracking issues for cross-session work.",
+            "",
+            "WHEN TO USE:",
+            "  - Multi-session features (planning now, executing later)",
+            "  - Complex features with 3+ milestones",
+            "  - Features you want to track across /clear sessions",
+            "",
+            "SKIP IF:",
+            "  - Simple 1-2 milestone feature completing in one session",
+            "  - Already have external issue tracking (JIRA, GitHub, etc.)",
+            "",
+            "HOW TO CREATE ISSUES:",
+            "",
+            "1. Create feature issue:",
+            "   bd create --type feature \\",
+            "     --title \"[Feature name from plan]\" \\",
+            "     --description \"Plan: [plan file path]\" \\",
+            "     --priority [1=high, 2=medium, 3=low]",
+            "",
+            "2. Create milestone issues (for each milestone in plan):",
+            "   bd create --type task \\",
+            "     --title \"M0: [milestone title]\" \\",
+            "     --deps [FEATURE-ID] \\",
+            "     --labels milestone",
+            "",
+            "3. Link milestones that depend on each other:",
+            "   bd dep [M2-ID] [M1-ID]  # M2 depends on M1",
+            "",
+            "The executor will update issue status during execution.",
+            "═══════════════════════════════════════════════════════════",
         ])
 
     # Handle planning step 5 in fix mode (main agent fixes plan structure)

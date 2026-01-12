@@ -34,3 +34,13 @@ All Python skill scripts are invoked as modules from `scripts/`:
 Example:
 
 <invoke working-dir=".claude/skills/scripts" cmd="python3 -m skills.problem_analysis.analyze --step 1 --total-steps 5" />
+
+## Beads Integration
+
+Skills optionally integrate with beads (bd) for persistent cross-session issue tracking:
+- Planner: Creates feature/milestone issues, tracks progress during execution
+- Refactor: (planned) Creates issues for technical debt findings
+- Codebase Analysis: (planned) Creates issues for security/architecture findings
+
+Integration is optional and gracefully falls back to TodoWrite when beads is unavailable.
+See `.claude/conventions/beads-integration.md` for details.

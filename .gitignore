@@ -19,7 +19,47 @@
 !.gitignore
 
 # Always ignore these, even in tracked directories
+
+# Beads database (per-project, not in config template)
+.beads/
+**/.beads/
+
+# Python
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/*.so
+**/*.egg
+**/*.egg-info
+**/.pytest_cache
+**/.coverage
+**/htmlcov/
+
+# Virtual environments
+**/venv/
+**/env/
+**/.venv/
+
+# IDE / Editor
+**/.vscode/
+**/.idea/
+**/*.swp
+**/*.swo
+**/*~
+**/.project
+**/.classpath
+**/.settings/
+
+# OS
 .DS_Store
 **/.DS_Store
+**/Thumbs.db
+**/desktop.ini
 
-**/__pycache__
+# Temporary files
+**/*.tmp
+**/*.temp
+**/*.log
+**/*.bak
+**/*.orig

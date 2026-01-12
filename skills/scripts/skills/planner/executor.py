@@ -30,6 +30,7 @@ from skills.lib.workflow.formatters import (
 )
 from skills.lib.workflow.cli import add_qr_args
 from skills.planner.shared.resources import get_mode_script_path
+from skills.lib.beads import is_beads_available
 
 
 # Module path for -m invocation
@@ -71,6 +72,7 @@ STEPS = {
             "  This step is ANALYSIS ONLY. Do NOT delegate yet.",
             "  Record wave groupings for step 3 (Implementation).",
         ],
+        "beads_check": True,  # Flag to check for beads issues
     },
     2: {
         "title": "Reconciliation",
@@ -170,6 +172,7 @@ STEPS = {
             "Quality Review Summary: [counts by category]",
             "Feedback for Future Plans: [actionable suggestions]",
         ],
+        "beads_close": True,  # Flag to close parent feature issue if all milestones done
     },
 }
 
@@ -244,6 +247,20 @@ def format_step_3_implementation(qr: QRState, total_steps: int, milestone_count:
             "",
             "Use waves identified in step 1.",
             "",
+        ]
+
+        # Add beads tracking guidance if available
+        if is_beads_available():
+            actions.extend([
+                "OPTIONAL BEADS TRACKING:",
+                "  Before starting each wave:",
+                "    bd update [MILESTONE-ID] --status in_progress",
+                "  After milestone completes:",
+                "    bd close [MILESTONE-ID] \"Milestone N complete\"",
+                "",
+            ])
+
+        actions.extend([
             format_orchestrator_constraint(),
             "",
             "FOR EACH WAVE:",
@@ -496,6 +513,52 @@ def format_output(step: int, total_steps: int,
     elif "actions" in info:
         # Non-dispatch step with explicit actions
         actions.extend(info["actions"])
+
+    # Add beads integration guidance for step 1 when available
+    if info.get("beads_check") and is_beads_available():
+        actions.extend([
+            "",
+            "═══════════════════════════════════════════════════════════",
+            "OPTIONAL: BEADS ISSUE TRACKING",
+            "═══════════════════════════════════════════════════════════",
+            "",
+            "Beads (bd) is available. Check for existing issues related to this plan:",
+            "",
+            "1. Search for feature issue:",
+            "   bd list --status open | grep \"[feature name]\"",
+            "",
+            "2. If feature issue exists with milestone issues:",
+            "   - Note milestone issue IDs for status tracking",
+            "   - You'll update their status during execution",
+            "",
+            "3. If no issues exist:",
+            "   - Issues may have been created during planning",
+            "   - Or this execution doesn't use issue tracking",
+            "   - Either is fine - tracking is optional",
+            "",
+            "During execution (step 3), you'll optionally update milestone status:",
+            "  - bd update [MILESTONE-ID] --status in_progress  # When starting",
+            "  - bd close [MILESTONE-ID] \"Milestone complete\"  # When done",
+            "═══════════════════════════════════════════════════════════",
+        ])
+
+    # Add beads close guidance for step 9 retrospective when available
+    if info.get("beads_close") and is_beads_available():
+        actions.extend([
+            "",
+            "═══════════════════════════════════════════════════════════",
+            "OPTIONAL: CLOSE BEADS FEATURE ISSUE",
+            "═══════════════════════════════════════════════════════════",
+            "",
+            "If you tracked this feature with beads and ALL milestones are complete:",
+            "",
+            "Close the parent feature issue:",
+            "  bd close [FEATURE-ID] \"Feature complete - all milestones done\"",
+            "",
+            "Check remaining work:",
+            "  bd ready  # See what's next",
+            "═══════════════════════════════════════════════════════════",
+        ])
 
     # Build next command(s)
     next_command = None
