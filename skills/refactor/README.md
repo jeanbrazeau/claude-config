@@ -5,77 +5,143 @@ LLM does not see duplication across files. It does not notice god functions
 growing. It cannot detect that three modules implement the same validation logic
 differently.
 
-I built this skill to catch what the LLM misses. It explores multiple dimensions
-in parallel, validates findings against evidence, and outputs prioritized
-recommendations.
+This skill catches what the LLM misses. It explores multiple smell categories in
+parallel, validates findings against evidence, and outputs prioritized work
+items.
 
 ## Workflow
 
 ```
-  Dispatch ---------> Triage ---------> Deep Dive
-  (10 parallel)      (select 3-5)      (cross-check)
-       |                  |                  |
-       v                  v                  v
-  [dimensions]       [ranking]          [evidence]
-       |                  |                  |
-       +------------------+------------------+
-                          |
-                          v
-                       Derive
-                     (proposals)
-                          |
-                          v
-                      Validate
-                    (philosophy)
-                          |
-                          v
-                   Pattern Synthesis
-                  (cross-cutting)
-                          |
-                          v
-                      Synthesize
-                (tiered recommendations)
+refactor.py                          explore.py (x10 parallel)
+===========                          =========================
+
+Step 1: Dispatch -----------------> Step 1: Domain Context
+        (launch 10 explore agents)  Step 2: Principle + Violations
+                                    Step 3: Pattern Generation
+                                    Step 4: Search
+                                    Step 5: Synthesis
+                                           |
+        <------------------------------<---+
+        (collect smell_reports)
+
+Step 2: Triage
+        (structure findings with IDs)
+
+Step 3: Cluster
+        (group by shared root cause)
+
+Step 4: Contextualize
+        (extract user intent, prioritize)
+
+Step 5: Synthesize
+        (generate work items)
 ```
 
-| Phase             | Question                           | Output                           |
-| ----------------- | ---------------------------------- | -------------------------------- |
-| Dispatch          | What exists?                       | Parallel findings per dimension  |
-| Triage            | Which dimensions matter?           | Top 3-5 ranked by impact         |
-| Deep Dive         | Are these real issues?             | Confirmed findings with evidence |
-| Derive            | What change removes this friction? | Proposals tied to evidence       |
-| Validate          | Does this align with philosophy?   | Validated or killed proposals    |
-| Pattern Synthesis | What patterns cut across findings? | Emergent abstractions            |
-| Synthesize        | What should be done first?         | Tiered recommendations           |
+| Phase         | Question                 | Output                     |
+| ------------- | ------------------------ | -------------------------- |
+| Dispatch      | What smells exist?       | Parallel smell_reports     |
+| Triage        | What did we find?        | Structured smells with IDs |
+| Cluster       | Which share root causes? | Grouped issues             |
+| Contextualize | What does the user want? | Prioritized issues         |
+| Synthesize    | What should be done?     | Actionable work items      |
 
-So, why all the phases? I enforce understanding before proposing and evidence
-before abstracting. Deep Dive cross-checks findings by re-reading code and
-applying detection questions. Validate kills proposals that fail the philosophy
-test. Without these gates, LLMs propose abstractions from single instances.
+## Design Decisions
 
-## Dimensions
+### 1. Five-Step Explore Workflow
 
-The skill launches parallel Explore agents across these dimensions:
+The original 2-step explore workflow conflated multiple cognitive tasks in a
+single step. LLMs perform better when each cognitive task gets focused attention.
 
-| Dimension     | Weight | Focus                                                    |
-| ------------- | ------ | -------------------------------------------------------- |
-| architecture  | 3      | Wrong boundaries, scaling bottlenecks, structural issues |
-| modules       | 3      | Circular dependencies, wrong cohesion, layer violations  |
-| abstraction   | 3      | Repeated patterns across files needing unification       |
-| types         | 2      | Missing domain concepts, primitive obsession             |
-| errors        | 2      | Inconsistent or poorly-located error handling            |
-| conditionals  | 2      | Complex conditionals signaling missing abstractions      |
-| naming        | 1      | Names that mislead or obscure intent                     |
-| extraction    | 1      | Duplication, mixed responsibilities, god functions       |
-| testability   | 1      | Hard-coded dependencies, global state                    |
-| modernization | 1      | Outdated patterns, deprecated APIs                       |
-| readability   | 1      | Code requiring external context to understand            |
+```
+Step 1: Domain Context    - Understand the project before analyzing it
+Step 2: Principle Extract - Understand the smell before hunting for it
+Step 3: Pattern Generate  - Translate abstract hints to project-specific patterns
+Step 4: Search            - Execute with generated patterns
+Step 5: Synthesis         - Format findings
+```
 
-Weight affects triage scoring. Structural dimensions (weight 3) surface first --
-they constrain everything else.
+### 2. Domain Context Per-Category (Not Lifted to Parent)
+
+Each explore agent does its own domain context analysis, rather than refactor.py
+doing it once and passing to all agents.
+
+Rationale: Different smell categories need different domain context aspects. A
+"naming precision" category cares about naming conventions; a "module structure"
+category cares about import patterns. The 30-second overhead per agent is
+acceptable for category-specific context.
+
+Rejected alternative: Lift domain context to refactor.py Step 1. Rejected
+because it assumes all categories need identical context.
+
+### 3. Violation Patterns Before Grep Patterns (Separate Steps)
+
+Pattern generation is split into two steps: first violation patterns (Step 2),
+then grep patterns (Step 3).
+
+Rationale: Analogical prompting works better in phases. The model first
+understands WHAT to look for conceptually (violation patterns matching the
+principle), then translates to HOW to search operationally (grep-able patterns).
+
+```
+Step 2: "What does 'vague naming' look like in a Python/Django project?"
+        -> "Service classes with generic names, Blueprint handlers called 'do_thing'"
+
+Step 3: "How do I grep for those?"
+        -> "class.*Service:", "def handle_", "Blueprint.*utils"
+```
+
+### 4. Grep-Hints as Exemplars Requiring Translation
+
+The markdown files contain generic patterns like `Manager, Handler, Utils` from
+language-agnostic examples. Using these literally in a Go codebase would miss
+`Store, Controller` patterns.
+
+Solution: Treat grep-hints as abstract exemplars that must be translated to
+project-specific equivalents based on domain context.
+
+### 5. Self-Generated Examples in Synthesis
+
+The synthesis step requires the model to generate a project-specific example
+work item before producing the full list. This calibrates output specificity to
+the actual project rather than assuming a particular language/framework.
+
+### 6. "Illustrative, Not Exhaustive" Framing
+
+LLMs tend to interpret lists as complete. Without explicit framing, the model
+searches only for listed patterns and misses analogous violations.
+
+Mechanisms used:
+
+- "Illustrative patterns (not exhaustive -- similar violations exist)"
+- "e.g.," prefix on examples
+- Open-ended escape hatches: "Any X that causes Y"
+- DOMAIN TRANSLATION instruction to translate abstract to project-specific
+
+## Code Quality Categories
+
+Categories are defined in `conventions/code-quality/` and organized by detection
+scope:
+
+| File           | Scope                   | Detection Method         |
+| -------------- | ----------------------- | ------------------------ |
+| `baseline.md`  | Single code unit        | Snippet analysis         |
+| `coherence.md` | Repetition across files | Cross-reference patterns |
+| `drift.md`     | Codebase-wide structure | Full system view         |
+
+Each file contains numbered categories (`## N. Title`) with:
+
+- `<principle>`: The core rule
+- `<grep-hints>`: Abstract search patterns (exemplars, not exhaustive)
+- `<violations>`: Illustrative patterns with severity
+- `<exceptions>`: When not to flag
+- `<threshold>`: When to flag
+
+The parser extracts categories by line range. Content within categories is
+free-form -- the parser passes raw text, the LLM interprets structure.
 
 ## Philosophy
 
-Every proposal passes validation against four principles:
+Proposals pass validation against four principles:
 
 | Principle      | Test                                              |
 | -------------- | ------------------------------------------------- |
@@ -85,21 +151,6 @@ Every proposal passes validation against four principles:
 | SIMPLICITY     | Is this the simplest thing that removes friction? |
 
 Proposals that predict futures or abstract from single instances get killed.
-Dijkstra: "The purpose of abstraction is not to be vague, but to create a new
-semantic level in which one can be absolutely precise."
-
-## Output
-
-Recommendations are tiered by impact and effort:
-
-| Tier        | Criteria                                     |
-| ----------- | -------------------------------------------- |
-| Critical    | High impact, low effort (start here)         |
-| Recommended | High impact, medium/high effort (plan these) |
-| Consider    | Valid but lower priority (revisit later)     |
-
-Each recommendation includes dimension, location, quoted evidence, and specific
-action.
 
 ## Usage
 

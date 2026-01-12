@@ -20,26 +20,25 @@ Turn 3--sequential LLM calls in a multi-turn conversation.
 
 ## Technique Selection Guide
 
-| Domain             | Technique             | Trigger Condition                              | Stacks With               | Conflicts With       | Cost/Tradeoff                      | Effect                                            |
-| ------------------ | --------------------- | ---------------------------------------------- | ------------------------- | -------------------- | ---------------------------------- | ------------------------------------------------- |
-| **Pre-Processing** | S2A Context Filtering | Input contains irrelevant/misleading noise     | Any downstream technique  | --                   | 2x tokens (filter + generate)      | QA +17.5pp; math +12pp                            |
-| **Refinement**     | Self-Refine           | Output quality improvable via iteration        | Any single-turn reasoning | Time-critical tasks  | 2-4x tokens per iteration          | 5-40% absolute improvement across 7 task types    |
-| **Verification**   | CoVe (Question-Based) | Factual accuracy critical                      | Quote Extraction, CRITIC  | Joint verification   | 3-4x tokens                        | List QA: 17%->70%; FACTSCORE +28% rel (55.9→71.4) |
-| **Verification**   | Factored Verification | Summary verification against source            | CoVe                      | Joint CoVe           | Claims x calls                     | HaluEval: 76.2% (+10pp); 45% hallucination cut    |
-| **Verification**   | CRITIC (Tool-Based)   | Verifiable via search/code/calculator          | CoVe, Self-Refine         | Intrinsic correction | Tool API + 2-3x tokens             | AmbigNQ +7.7 F1; GSM8K +7.0%; 79% toxicity cut    |
-| **Aggregation**    | Universal Self-Cons.† | Free-form output; exact-match SC fails         | Complexity weighting      | Greedy decoding      | N samples + 1 selection            | Matches SC on math (92.4%); enables SC for prose  |
-| **Aggregation**    | Multi-Chain Reasoning | Evidence scattered across attempts             | Self-Consistency          | Single-chain         | N chains + 1 meta-reasoning        | +5.7% over SC on multi-hop; 82% quality explains  |
-| **Aggregation**    | Complexity-Weighted   | Varying reasoning depth across samples         | USC, Self-Consistency     | Simple majority      | Minimal; selection only            | GSM8K: 80.5% vs 78.0% SC (+2.5pp)                 |
-| **Aggregation**    | Multi-Expert†         | Multiple valid perspectives needed             | USC                       | Iterative debate     | Single aggregation turn            | TruthfulQA: 89.4% vs 77.1% USC (+12.2pp)          |
-| **Meta-Reasoning** | Cumulative Reasoning  | Complex reasoning; validated steps needed      | External verifiers        | Linear CoT           | 3+ roles/step; DAG management      | Game of 24: 98% vs 74% ToT; MATH L5 +43%          |
-| **Decomposition**  | Decomposed Prompting  | Task needs specialized sub-handlers            | Any verification          | Monolithic prompts   | Handler setup overhead             | Enables tasks CoT cannot learn from few-shot      |
-| **Decomposition**  | ADAPT                 | Task complexity unknown; may fail              | Self-Refine, CRITIC       | Fixed decomposition  | Recursive calls on failure         | ALFWorld +28%; WebShop +27%; TextCraft +33%       |
-| **Decomposition**  | Cognitive Prompting   | Complex multi-step problem needs structure     | Any verification          | Monolithic prompts   | 8 COPs overhead per problem        | GSM8K +10.8% (H-CP); LLaMA 70B: 95% solve         |
-| **Decomposition**  | Table as Thought      | Constraint planning; multi-constraint tracking | Any verification          | Simple CoT           | Schema + table construction        | Calendar +10.8% over direct; planning+5.4%        |
-| **Verification**   | Socratic Method       | Claims need cross-examination/dialectic        | CoVe, Factored            | Simple yes/no checks | Multi-turn dialogue overhead       | Improves validity scoring via elenchus            |
-| **Prompt Design**  | Synthetic Prompting   | Few-shot demos insufficient; need diversity    | Any reasoning technique   | Fixed exemplars      | 1000x backward-forward synthesis   | +15.6% over PAL; GSM8K 74.7%                      |
-| **Parallel**       | Skeleton-of-Thought†  | Multi-point answers; independent sections      | Any aggregation           | Sequential reasoning | Skeleton + N expansion calls       | 1.6-2.7x speedup; net quality +0.05 to +0.22      |
-| **Prompt Design**  | Active Prompting†     | Few-shot exemplar selection                    | Any few-shot technique    | Random selection     | Uncertainty estimation (k samples) | GSM8K +4.8pp over random (78.6%->83.4%)           |
+| Domain             | Technique             | Trigger Condition                          | Stacks With               | Conflicts With       | Cost/Tradeoff                      | Effect                                           |
+| ------------------ | --------------------- | ------------------------------------------ | ------------------------- | -------------------- | ---------------------------------- | ------------------------------------------------ |
+| **Pre-Processing** | S2A Context Filtering | Input contains irrelevant/misleading noise | Any downstream technique  | --                   | 2x tokens (filter + generate)      | QA +17.5pp; math +12pp                           |
+| **Refinement**     | Self-Refine           | Output quality improvable via iteration    | Any single-turn reasoning | Time-critical tasks  | 2-4x tokens per iteration          | 5-40% absolute improvement across 7 task types   |
+| **Refinement**     | Progressive-Hint (PHP)| Math reasoning; previous answer as hint    | CoT, Self-Consistency     | --                   | 2+ iterations until convergence    | GSM8K 95.5%; SVAMP 91.9%; MATH 53.9%             |
+| **Refinement**     | Think Twice           | Complex math/code; cognitive inertia       | Any reasoning technique   | Single-pass          | 2-4 rounds; answer-only context    | AIME +2.8pp (80.3%→83.1%); GPQA +2.2pp           |
+| **Refinement**     | Iteration of Thought  | Response improvable via inner dialogue     | Any single-turn reasoning | Static prompts       | 2-5 iterations; IDA overhead       | HotpotQA +35% F1; Game of 24 +15% over CoT       |
+| **Verification**   | CoVe (Question-Based) | Factual accuracy critical                  | Quote Extraction, CRITIC  | Joint verification   | 3-4x tokens                        | List QA: 17%->70%; FACTSCORE +15pp               |
+| **Verification**   | Factored Verification | Summary verification against source        | CoVe                      | Joint CoVe           | Claims x calls                     | HaluEval: 76.2% (+10pp); 45% hallucination cut   |
+| **Verification**   | CRITIC (Tool-Based)   | Verifiable via search/code/calculator      | CoVe, Self-Refine         | Intrinsic correction | Tool API + 2-3x tokens             | AmbigNQ +7.7 F1; GSM8K +7.0%; 79% toxicity cut   |
+| **Aggregation**    | Universal Self-Cons.  | Free-form output; exact-match SC fails     | Complexity weighting      | Greedy decoding      | N samples + 1 selection            | Matches SC on math (92.4%); enables SC for prose |
+| **Aggregation**    | Multi-Expert          | Multiple valid perspectives needed         | USC                       | Iterative debate     | Single aggregation turn            | TruthfulQA: 89.4% vs 77.1% USC (+12.2pp)         |
+| **Meta-Reasoning** | Cumulative Reasoning  | Complex reasoning; validated steps needed  | External verifiers        | Linear CoT           | 3+ roles/step; DAG management      | Game of 24: 98% vs 74% ToT; MATH L5 +43%         |
+| **Decomposition**  | Decomposed Prompting  | Task needs specialized sub-handlers        | Any verification          | Monolithic prompts   | Handler setup overhead             | Enables tasks CoT cannot learn from few-shot     |
+| **Decomposition**  | ADAPT                 | Task complexity unknown; may fail          | Self-Refine, CRITIC       | Fixed decomposition  | Recursive calls on failure         | ALFWorld +28%; WebShop +27%; TextCraft +33%      |
+| **Decomposition**  | Look Before You Leap  | Math problem requires clarification first  | CoT, Decomposed Prompting | Direct solving       | 1 elaboration turn                 | +5.38% math; +4.99% geometry                     |
+| **Decomposition**  | Successive Prompting  | Multi-hop QA; sequential dependencies      | Decomposed Prompting      | Monolithic prompts   | N decomposition steps              | Multi-hop QA; enables complex decomposition      |
+| **Parallel**       | Skeleton-of-Thought   | Multi-point answers; independent sections  | Any aggregation           | Sequential reasoning | Skeleton + N expansion calls       | 1.6-2.7x speedup; net quality +0.05 to +0.22     |
+| **Prompt Design**  | Active Prompting      | Few-shot exemplar selection                | Any few-shot technique    | Random selection     | Uncertainty estimation (k samples) | GSM8K +4.8pp over random (78.6%->83.4%)          |
 
 ---
 
@@ -49,27 +48,28 @@ Turn 3--sequential LLM calls in a multi-turn conversation.
    keep wrong); use verification Qs, tools, or multi-sample
 2. **Self-Refine for Iteration** -- 5-40% improvement when feedback is
    actionable and specific
-3. **Separate Feedback from Refinement** -- Generate feedback in one turn, apply
+3. **Progressive-Hint for Math** -- Previous answer as hint until convergence;
+   GSM8K 95.5%, SVAMP 91.9%
+4. **Think Twice for Cognitive Inertia** -- Re-prompt with prior answer to break
+   entrenched errors; AIME +2.8pp
+5. **Iteration of Thought (IoT)** -- Inner dialogue agent generates thought-
+   provoking prompts; HotpotQA +35% F1
+6. **Separate Feedback from Refinement** -- Generate feedback in one turn, apply
    in another; mixing degrades both
-4. **Factored over Joint Verification** -- Answer verification Qs without
+7. **Factored over Joint Verification** -- Answer verification Qs without
    baseline in context; +3-8pp
-5. **Shortform over Longform** -- 70% accuracy on individual Qs vs 17% for same
+8. **Shortform over Longform** -- 70% accuracy on individual Qs vs 17% for same
    facts in longform
-6. **Open Questions over Yes/No** -- Models agree with yes/no regardless of
+9. **Open Questions over Yes/No** -- Models agree with yes/no regardless of
    correctness; open forces recall
-7. **Claim Decomposition for Summaries** -- Decompose, verify each against
-   source; 76.2% vs 61.2% single-prompt
-8. **Tool-Interactive Verification** -- CRITIC: +7.7 F1 on QA, +7.0% math via
-   external validation
-9. **Filter Context Before Reasoning** -- S2A: +17.5pp by removing noise before
-   main task
-10. **USC for Free-Form** -- Matches SC on structured (92.4%); enables
+10. **Claim Decomposition for Summaries** -- Decompose, verify each against
+    source; 76.2% vs 61.2% single-prompt
+11. **Tool-Interactive Verification** -- CRITIC: +7.7 F1 on QA, +7.0% math via
+    external validation
+12. **Filter Context Before Reasoning** -- S2A: +17.5pp by removing noise before
+    main task
+13. **USC for Free-Form** -- Matches SC on structured (92.4%); enables
     consistency where exact-match fails
-11. **Multi-Chain for Evidence** -- +5.7% over SC; 20% of answers combine facts
-    across chains that individual chains miss
-12. **Meta-Reasoning over Majority** -- Second pass synthesizing all chains
-    beats simple vote
-13. **Complexity-Weighted Voting** -- Top-K complex chains: 80.5% vs 78.0% SC
 14. **History Accumulation** -- Retain previous feedback; models learn from past
     mistakes
 15. **Explicit Stopping Conditions** -- Use limits or thresholds; models rarely
@@ -80,34 +80,27 @@ Turn 3--sequential LLM calls in a multi-turn conversation.
     TruthfulQA
 18. **Decompose Only on Failure** -- ADAPT's recursive approach: +28% over fixed
     plans
-19. **Skeleton-First for Parallel** -- Structure before content; 1.6-2.7x
+19. **Look Before You Leap** -- Elaborate problem before solving; +5.38% math
+20. **Skeleton-First for Parallel** -- Structure before content; 1.6-2.7x
     speedup
-20. **Uncertainty-Based Exemplars** -- Active Prompting: +4.8pp by annotating
+21. **Uncertainty-Based Exemplars** -- Active Prompting: +4.8pp by annotating
     high-uncertainty Qs
-21. **Exclusive Context Filtering** -- S2A T2 uses ONLY filtered context;
+22. **Exclusive Context Filtering** -- S2A T2 uses ONLY filtered context;
     including original defeats purpose
-22. **LLM-Generated Verification Qs** -- Outperform heuristic/template; tailored
+23. **LLM-Generated Verification Qs** -- Outperform heuristic/template; tailored
     to response
-23. **Factor+Revise for Complex** -- Explicit cross-check between verification
+24. **Factor+Revise for Complex** -- Explicit cross-check between verification
     and final: +7.7pp
-24. **Actionable Feedback** -- "Use n(n+1)/2 instead of loop" beats "could be
+25. **Actionable Feedback** -- "Use n(n+1)/2 instead of loop" beats "could be
     more efficient"
-25. **DAG over Linear** -- Cumulative Reasoning: propositions combine any prior
+26. **DAG over Linear** -- Cumulative Reasoning: propositions combine any prior
     validated nodes
-26. **Self-Generated Success Heuristic** -- ADAPT uses executor LLM to determine
+27. **Self-Generated Success Heuristic** -- ADAPT uses executor LLM to determine
     completion
-27. **Diverse Expert Aggregation** -- NGT: agreed + conflict-resolved + unique
+28. **Diverse Expert Aggregation** -- NGT: agreed + conflict-resolved + unique
     perspectives
-28. **SoT Router** -- Route to skeleton-first only for multi-point independent
+29. **SoT Router** -- Route to skeleton-first only for multi-point independent
     answers
-29. **Cognitive Operations Sequence** -- 8 COPs (goal→decompose→filter→pattern→
-    abstract→generalize→integrate); H-CP reaches 95% on GSM8K
-30. **Tabular Thought Structure** -- Schema design + reasoning table enables
-    constraint tracking; +10.8% on calendar planning
-31. **Cross-Examination for Claims** -- Socratic elenchus: test consistency via
-    targeted questioning before accepting conclusions
-32. **Backward-Forward Synthesis** -- Generate reasoning chain first, then
-    matching question; ensures answerability and diversity
 
 ---
 
@@ -228,6 +221,146 @@ Previous attempts and feedback:
 Produce improved version. Do not repeat previous mistakes.
 ```
 
+### Progressive-Hint Prompting (PHP): Answer Convergence
+
+Uses previous answers as hints until consecutive responses converge. Per Zheng
+et al. (2023): "PHP follows a human-like thought process where previous answers
+are leveraged as hints to arrive at the correct answer after re-evaluating the
+question."
+
+**Process:**
+
+```
+T1 (Base):    question + CoT -> answer_0
+T2 (Hint 1):  question + "(Hint: The answer is near to {answer_0})"
+              -> answer_1 [with hint acknowledgment]
+T3 (Hint 2):  question + "(Hint: The answer is near to {answer_0}, {answer_1})"
+              -> answer_2
+...
+Tn:           Stop when answer_n == answer_{n-1}
+```
+
+**The hint acknowledgment pattern:**
+
+```
+We know the Answer Hints: {previous_answers}.
+With the Answer Hints: {previous_answers}, we will answer the question.
+[Then proceed with reasoning]
+```
+
+**Performance (GPT-4 + Complex CoT):**
+
+| Dataset  | Baseline | +PHP  | Delta  |
+| -------- | -------- | ----- | ------ |
+| GSM8K    | 92.0%    | 95.5% | +3.5pp |
+| SVAMP    | 87.1%    | 91.9% | +4.8pp |
+| MATH     | 42.5%    | 53.9% | +11.4pp|
+
+**Key insight:** Both correct and incorrect hints improve performance. Correct
+hints confirm good reasoning paths; incorrect hints force the model to
+reconsider and "jump out of" wrong answers.
+
+**Stopping criterion:** Two consecutive identical answers signals convergence.
+Stronger models/prompts converge faster (fewer iterations).
+
+WRONG: `"Here's your previous answer: [58]. Try again."`
+RIGHT: `"(Hint: The answer is near to 58). We know the Answer Hints: 58..."`
+
+**Stacking:** Combines with Self-Consistency (PHP applied to best SC chain) for
+additional gains. Works with any CoT variant as base prompt.
+
+### Think Twice: Multi-Round Answer Re-Evaluation
+
+Re-prompts with prior answer to break cognitive inertia. Per Tian et al.
+(2025): "This approach parallels human cognitive processes, breaking cognitive
+inertia and enabling the model to correct entrenched reasoning errors."
+
+**Process:**
+
+```
+T1: question -> {thinking_1, answer_1}
+T2: question + "The assistant's previous answer is: <answer>{answer_1}</answer>,
+    and please re-answer." -> {thinking_2, answer_2}
+T3: [repeat with answer_2]
+...
+Tn: Return answer_n after N rounds (typically 2-4)
+```
+
+**Critical design:** Intermediate reasoning traces are DISCARDED between rounds.
+Only the final answer is passed. This forces independent reconsideration rather
+than path-dependent refinement.
+
+**Performance (QwQ-32B across rounds):**
+
+| Benchmark      | R1    | R2    | R3    | R4    |
+| -------------- | ----- | ----- | ----- | ----- |
+| AIME 2024      | 80.3% | 82.1% | 82.8% | 83.1% |
+| MATH-500       | 97.2% | 97.8% | 97.8% | 97.7% |
+| GPQA-Diamond   | 65.9% | 67.2% | 67.5% | 68.1% |
+| LiveCodeBench  | 63.0% | 64.7% | 65.2% | 65.9% |
+
+**Why it works:** Word frequency analysis shows R2 responses use fewer
+hesitation markers ("but", "wait", "maybe") and become more decisive. In
+Incorrect→Correct cases, "wait" usage increases—indicating deliberate
+reconsideration before correction.
+
+**Diminishing returns:** Improvement rate decreases after R2. R4 gains are
+marginal. Optimal for most tasks: 2-3 rounds.
+
+WRONG: `"Your answer of 13 was wrong. Try harder."`
+RIGHT: `"The assistant's previous answer is: <answer>13</answer>, please re-answer."`
+
+### Iteration of Thought (IoT): Inner Dialogue Agent
+
+Uses a dedicated "Inner Dialogue Agent" (IDA) to generate context-sensitive
+prompts that iteratively refine the LLM's response. Per Radha et al. (2024):
+"IoT adapts its reasoning path dynamically, based on evolving context, without
+generating alternate explorative thoughts which are ultimately discarded."
+
+**Two variants:**
+
+| Variant | Termination              | Best For           | Risk                    |
+| ------- | ------------------------ | ------------------ | ----------------------- |
+| AIoT    | LLM decides when done    | Simple tasks       | Premature convergence   |
+| GIoT    | Fixed N iterations       | Complex reasoning  | Redundant iterations    |
+
+**Process (GIoT):**
+
+```
+T1: query + "Initial Prompt" -> response_0
+For i = 1 to N-1:
+    T_ida: IDA(query, response_{i-1}) -> thought_provoking_prompt_i
+    T_i:   query + prompt_i -> response_i
+T_final: IDA generates final prompt, LLM produces final_response
+```
+
+**IDA function:** Maps (query, previous_response) → new_prompt. The IDA
+generates prompts that challenge, extend, or verify the current response—
+functioning like an internal critic.
+
+**Performance:**
+
+| Task           | CoT   | IoT   | Delta  |
+| -------------- | ----- | ----- | ------ |
+| HotpotQA (F1)  | ~50%  | ~85%  | +35pp  |
+| HotpotQA (EM)  | ~30%  | ~74%  | +44pp  |
+| Game of 24    | 60%   | 75%   | +15pp  |
+| GPQA          | varies| +5-8% | varies |
+
+**Key insight:** GIoT outperforms AIoT on complex tasks because forced
+iterations prevent premature conclusion. AIoT performs better on simpler tasks
+where early termination is appropriate.
+
+**Failure mode:** AIoT often "misjudges the completeness of its responses,
+leading to premature convergence." Use GIoT for multi-step reasoning.
+
+WRONG: `"Think more about your answer."`
+RIGHT: IDA-generated: `"Your response addresses X but does not consider Y.
+       What happens when Z is applied to your reasoning?"`
+
+**Stacking:** IoT thought sequences can be used for fine-tuning. Combines with
+any base reasoning technique (CoT, Complex CoT).
+
 ---
 
 ## 3. Verification Methods
@@ -242,7 +375,7 @@ Three approaches exist, each suited to different scenarios:
 | -------- | ------------------- | ------------------------ | --------------- |
 | CoVe     | Isolated Q&A        | General factual claims   | 3-4x tokens     |
 | Factored | Source documents    | Summaries with source    | Claims x calls  |
-| CRITIC   | Tools (search/code) | Verifiable via execution | Tool API + 2-3x |
+| CRITIC   | Any available tools | Verifiable via execution | Tool API + 2-3x |
 
 ### CoVe: Question-Based Fact-Checking
 
@@ -345,9 +478,14 @@ succeeds because claims verified against source, not model's own reasoning.
 
 ### CRITIC: Tool-Interactive Verification
 
-Uses external tools (search, code, calculators) instead of LLM knowledge. Per
-Gou et al. (2024): "CRITIC allows LLMs to validate outputs similar to human tool
-interaction."
+Uses external tools instead of LLM knowledge. Per Gou et al. (2024): "CRITIC
+allows LLMs to validate outputs similar to human tool interaction."
+
+**Tool flexibility:** The original paper uses search APIs and calculators, but
+CRITIC generalizes to any verification tool the agent can access. Most claims
+can be verified with basic tools—grep to find patterns, search to locate
+information, read to check source content. For complex claims that can't be
+verified through simple lookup, write temporary verification code.
 
 **Process:**
 
@@ -358,15 +496,6 @@ T3 (Correct):  If issues: query + response_0 + critique -> corrected
                If passed: return response_0
 ```
 
-**Tool selection:**
-
-| Domain     | Tool               | Verification Method           |
-| ---------- | ------------------ | ----------------------------- |
-| Factual QA | Search engine      | Query for supporting evidence |
-| Math       | Python interpreter | Execute, compare results      |
-| Toxicity   | Classifier         | Score output, flag issues     |
-| Code       | Interpreter        | Execute, check errors         |
-
 **Performance:**
 
 | Task               | Baseline | +CRITIC | Delta  |
@@ -375,72 +504,13 @@ T3 (Correct):  If issues: query + response_0 + critique -> corrected
 | GSM8K (Math)       | 81.0%    | 88.0%   | +7.0pp |
 | Toxicity reduction | --       | --      | 79.2%  |
 
-**Verification prompt:**
-
-```
-Previous output: {response_0}
-
-Verify correctness using available tools. For each claim/calculation:
-1. Identify what needs verification
-2. Use appropriate tool to check
-3. Report supported or refuted
-
-If issues found, explain what's wrong and how to fix.
-```
-
 **Key insight:** CRITIC's improvement comes from external signal, not additional
 reasoning. Per Gou et al.: "Exclusive reliance on self-correction without
 external feedback may deteriorate performance."
 
-**Iteration effects:** Performance typically peaks at 2-3 iterations with
-diminishing returns thereafter. Additional cycles add token cost without
-proportional accuracy gains.
-
 **Stacking:** All three verification methods share the contaminated-context
 anti-pattern. Can combine when different verification types needed (e.g., CoVe
 for knowledge claims + CRITIC for calculations).
-
-### Socratic Method: Cross-Examination for Verification
-
-Uses structured questioning techniques to validate claims and expose weaknesses.
-Per Chang (2023): "When the expert partner is a language model, the Socratic
-method can be effectively employed without the issues that may arise in human
-interactions."
-
-**Key techniques:**
-
-| Method    | Purpose                          | When to Use             |
-| --------- | -------------------------------- | ----------------------- |
-| Elenchus  | Test consistency via questioning | Validate argument logic |
-| Dialectic | Expose missing counterarguments  | Check for omissions     |
-| Maieutics | Draw out implicit knowledge      | Expand understanding    |
-
-**Process:**
-
-```
-T1 (Define):    Extract claim and supporting reasons from response
-T2 (Elenchus):  For each reason, rate argument validity + source credibility
-T3 (Dialectic): Generate counterarguments; rate rival reasoning
-T4 (Aggregate): Weighted sum of validity × credibility scores
-```
-
-**Verification prompts:**
-
-```
-# Elenchus (cross-examination)
-What is the evidence for reason [r] to support conclusion [Ω]?
-How strongly does [r] support [Ω]? Rate validity [1-10] and credibility [1-10].
-
-# Dialectic (counterargument)
-Is there a counterargument against [r ⇒ Ω]? Provide counter reasons.
-```
-
-**Why this works:** Chang: "Methods definition, elenchus, and dialectic clarify
-user queries and assess the quality of language model-generated text, leading to
-improved precision and accuracy."
-
-**Stacking:** Combine with CoVe (factored question generation) and CRITIC
-(tool-based validation) for comprehensive verification.
 
 ---
 
@@ -489,66 +559,6 @@ et al.: "LLMs are generally able to examine response consistency across tasks."
 **Optimal sample count:** 8 samples balances accuracy and cost. More plateaus or
 degrades from context limits.
 
-### Multi-Chain Reasoning (MCR): Evidence Synthesis
-
-Uses chains as evidence sources, not just answer votes. Per Yoran et al. (2023):
-"Sampled chains collect pieces of evidence, not just predictions."
-
-**Process:**
-
-```
-T1: Generate N reasoning chains with intermediate steps
-T2: Concatenate all chains into unified context
-T3 (Meta-reason): query + multi_chain_context -> final_answer + explanation
-```
-
-**Why MCR beats SC:** SC discards reasoning, only votes answers. MCR preserves
-reasoning, synthesizes facts. Different chains contain complementary facts that
-combined yield correct answer even when individual chains fail.
-
-**Key finding (Yoran et al.):** "20% of correct MCR answers combine facts from
-multiple chains; 10% are better than any individual chain." This explains why
-meta-reasoning over evidence outperforms simple majority voting.
-
-**Example (Yoran et al.):**
-
-```
-Q: Did Brad Peyton need to know about seismology?
-
-Chain 1 (No): Directors don't need seismology
-Chain 2 (Yes): Peyton directed San Andreas, about earthquake
-Chain 3 (No): Seismology isn't required for directors
-
-SC vote: No (2-1)
-
-MCR synthesis: Peyton directed San Andreas (earthquake film)
-               + seismology = study of earthquakes
-               -> Yes (director of earthquake film needed seismology knowledge)
-```
-
-**Performance:** Multi-hop QA +5.7% over SC; 82% high-quality explanations.
-
-### Complexity-Weighted Voting
-
-Weights votes by reasoning complexity. Per Fu et al. (2023): "Vote over top K
-complex chains."
-
-**Process:**
-
-```
-T1: Generate N chains with answers
-T2: Rank by complexity (count steps), select top K
-T3: Majority vote among K complex chains only
-```
-
-**Why this works:** Simple chains reflect shortcuts or luck. Complex chains
-demonstrate thorough reasoning. More steps -> more likely correct.
-
-**Performance (GSM8K):** Standard SC 78.0% vs Complexity top-K 80.5% (+2.5pp)
-
-**Implementation:** No additional LLM calls--post-process to count steps,
-filter, vote.
-
 ### Multi-Expert Prompting: Perspective Aggregation
 
 Simulates multiple domain experts with structured aggregation. Per Long et al.
@@ -582,8 +592,7 @@ best performs much worse.
 WRONG: `Generate 3 expert responses, pick best` RIGHT:
 `NGT: agreement -> conflict resolution -> unique perspectives -> aggregate`
 
-**Stacking:** Combine techniques--filter by complexity, then USC selection, or
-MCR synthesis of USC-selected outputs.
+**Stacking:** Combine with USC for selection among expert outputs.
 
 ---
 
@@ -739,126 +748,100 @@ on failure
 **Stacking:** Combine with Self-Refine for failed sub-tasks, CRITIC for
 tool-validated execution.
 
-### Cognitive Prompting (CP): Structured Problem-Solving Operations
+### Look Before You Leap (LEP): Problem Elaboration
 
-Guides LLMs through sequence of cognitive operations (COPs) mimicking human
-problem-solving. Per Kramer & Baumann (2024): "CP structures problem-solving
-into a sequence of COPs, enabling LLMs to address complex tasks across domains
-like mathematics, logic, and decision-making."
-
-**Eight cognitive operations:**
-
-```
-1. Goal Clarification: Define the objective clearly
-2. Decomposition: Break down the problem into manageable parts
-3. Filtering: Focus on the most relevant information
-4. Reorganization: Arrange information to reveal structure
-5. Pattern Recognition: Identify recurring patterns or relationships
-6. Abstraction: Extract fundamental principles from patterns
-7. Generalization: Apply abstracted principles to larger problem
-8. Integration: Synthesize components into cohesive solution
-```
-
-**Three variants:**
-
-| Variant | Description                         | Performance |
-| ------- | ----------------------------------- | ----------- |
-| D-CP    | Fixed sequence of COPs              | Baseline    |
-| SA-CP   | LLM self-selects COP sequence       | +flexible   |
-| H-CP    | SA-CP + few-shot CoT from solutions | **95%**     |
-
-**Process prompt (SA-CP):**
-
-```
-Solve the following problem by choosing and applying appropriate
-cognitive operations from the list below. For each step, provide
-concise reasoning before moving on.
-
-[8 COPs listed]
-
-Problem: {question}
-Please start with "Goal Clarification" and proceed step by step.
-```
-
-**Performance (GSM8K):**
-
-| Model     | Zero-shot | D-CP | SA-CP | H-CP    |
-| --------- | --------- | ---- | ----- | ------- |
-| LLaMA 70B | ~88%      | ~92% | ~93%  | **95%** |
-| Qwen 32B  | ~92%      | ~95% | ~96%  | **97%** |
-
-**Why this works:** Kramer & Baumann: "Unlike methods such as CoT, CP provides
-multi-dimensional depth without manual solution design."
-
-**Critical:** Goal Clarification must come first; Integration must come last.
-Most frequent SA-CP sequence: GC→DC→PR (goal clarification→decomposition→pattern
-recognition).
-
-WRONG: `Jump directly to solving` RIGHT:
-`Start with Goal Clarification, proceed through operations systematically`
-
-**Stacking:** Combine with verification methods (CoVe, CRITIC) for validated
-multi-step reasoning.
-
-### Table as Thought: Structured Reasoning via Schema
-
-Uses tabular schema to structure and track reasoning. Per Sun et al. (2025):
-"Table as Thought employs a table as a container to represent one or more
-structured thoughts."
+Elaborates the problem before solving to improve comprehension. Per Xu et al.
+(2023): "Problem elaboration prompting improves mathematical reasoning by
+making implicit information explicit before solving."
 
 **Process:**
 
 ```
-T1 (Schema):   query -> design table schema (column headers)
-T2 (Populate): iteratively populate reasoning table rows
-T3 (Verify):   check constraints and consistency
-T4 (Answer):   extract final answer from table
+T1 (Elaborate): question -> elaboration including:
+                - Key entities and relationships
+                - Implicit constraints made explicit
+                - Problem restatement in clearer terms
+T2 (Solve):     question + elaboration -> answer
 ```
 
-**Algorithm:**
+**Elaboration prompt:**
 
 ```
-S = DESIGN_SCHEMA(Q)           # Define table schema for query
-T = Initialize_empty_table(S)
-while not SUFFICIENT(T, Q):
-    Θ = REFLECT(T, Q)          # Generate possible updates
-    T = UPDATE_TABLE(T, Θ)     # Apply updates
-return T
-```
+Before solving, elaborate on this problem:
+1. Identify all given quantities and unknowns
+2. State any implicit assumptions
+3. Rephrase the problem in your own words
+4. Identify the mathematical relationships involved
 
-**Schema design example (calendar scheduling):**
-
-```
-Headers: Participant Name | Availability Start | Availability End |
-         Meeting Duration | Schedule Constraint | Proposed Time
+Problem: {question}
 ```
 
 **Performance:**
 
-| Task              | Direct | CoT   | Text as Thought | Table as Thought  |
-| ----------------- | ------ | ----- | --------------- | ----------------- |
-| Calendar (GPT-4o) | 64.0%  | 64.5% | 69.4%           | **74.8%**         |
-| TravelPlanner     | 0.56%  | 0.56% | 0.0%            | **1.11%** (given) |
+| Dataset    | CoT   | +LEP  | Delta  |
+| ---------- | ----- | ----- | ------ |
+| Math23K    | 78.2% | 83.6% | +5.4pp |
+| Geometry   | 64.3% | 69.3% | +5.0pp |
+| SVAMP      | 79.0% | 83.1% | +4.1pp |
 
-**Why this works:** Sun et al.: "Headers in the table schemas are designed to
-represent essential reasoning steps and key information pertinent to the task.
-These headers act as anchors for organizing and verifying intermediate and final
-reasoning outputs."
+**Why it works:** Mathematical word problems often contain implicit information
+that causes errors. Elaboration makes this explicit before reasoning begins,
+reducing misinterpretation.
 
-**Critical:** Schema design quality determines success. Predefined schemas often
-outperform LLM-designed schemas on complex planning tasks.
+WRONG: `"Think carefully, then solve."`
+RIGHT: `"First elaborate: what quantities are given? What's asked? What
+relationships connect them?"`
 
-| Ablation              | Calendar Accuracy |
-| --------------------- | ----------------- |
-| Full Table as Thought | 42.3%             |
-| w/o Schema Design     | 36.2% (−6.1)      |
-| w/o Verification      | 38.5% (−3.8)      |
+**Stacking:** Pairs well with Decomposed Prompting—elaborate first, then
+decompose. Can precede any reasoning technique.
 
-WRONG: Single-row tables for complex constraints RIGHT: Multi-row tables with
-fine-grained intermediate steps
+### Successive Prompting: Sequential Decomposition
 
-**Stacking:** Combine with verification modules for constraint-checking; works
-well with structured planning tasks.
+Iteratively decomposes complex questions into sub-questions answered
+sequentially. Per Wang et al. (2022): "Complex questions are decomposed into
+simpler sub-questions that can be answered in succession."
+
+**Process:**
+
+```
+T1: question -> sub_question_1 + answer_1
+T2: question + [sub_q1: answer_1] -> sub_question_2 + answer_2
+T3: question + [sub_q1: answer_1, sub_q2: answer_2] -> sub_question_3 + answer_3
+...
+Tn: question + all_sub_qa_pairs -> final_answer
+```
+
+**Key principle:** Each turn generates BOTH the next sub-question AND its
+answer. The growing context of answered sub-questions guides subsequent
+decomposition.
+
+**Example (multi-hop QA):**
+
+```
+Question: "What year was the university founded where the author of
+          'The Great Gatsby' studied?"
+
+T1: Sub-Q: "Who wrote 'The Great Gatsby'?"
+    Answer: "F. Scott Fitzgerald"
+
+T2: Sub-Q: "Where did F. Scott Fitzgerald study?"
+    Answer: "Princeton University"
+
+T3: Sub-Q: "When was Princeton University founded?"
+    Answer: "1746"
+
+Final: "1746"
+```
+
+**Difference from Decomposed Prompting:** Successive Prompting generates sub-
+questions dynamically based on accumulated context; Decomposed Prompting uses
+pre-defined handlers with fixed decomposition strategies.
+
+WRONG: Plan all sub-questions upfront
+RIGHT: Generate each sub-question after seeing previous answers
+
+**Stacking:** Complements ADAPT—use Successive for known-structure multi-hop,
+ADAPT for unknown complexity. Can apply verification after each sub-answer.
 
 ---
 
@@ -956,75 +939,6 @@ models." Exemplars from one model often work well with others.
 
 WRONG: Select exemplars model gets correct easily RIGHT: Select where model
 shows highest disagreement
-
-### Synthetic Prompting: Self-Generated Demonstrations
-
-Augments limited seed examples with LLM-synthesized demonstrations. Per Shao et
-al. (2023): "We prompt an LLM to generate more examples by alternating between
-two processes: the backward process, where the LLM synthesizes a question based
-on a self-generated reasoning chain; and the forward process, where the LLM
-produces a reasoning chain for the synthesized question."
-
-**Backward-forward synthesis:**
-
-```
-Backward (question synthesis):
-  1. Sample topic word from diverse set
-  2. Set target complexity (# reasoning steps)
-  3. Generate reasoning chain of target complexity
-  4. Generate question matching reasoning chain
-
-Forward (chain refinement):
-  1. Generate refined reasoning chain for synthesized question
-  2. Sample m chains, keep if >50% agree on answer
-  3. Store shortest consistent chain with question
-```
-
-**Backward prompt:**
-
-```
-# I implement a Python function called solution() to solve the following question.
-# The question is about {topic}.
-def solution():
-""" {target_complexity}-line function """
-# 1
-...
-Question: [synthesized based on self-generated chain]
-```
-
-**Selection scheme (In-Cluster Complexity):**
-
-```
-1. Cluster synthesized examples by semantic similarity
-2. From each cluster, select most complex example (longest chain)
-3. Use selected examples as diverse, informative demonstrations
-```
-
-**Performance:**
-
-| Dataset       | PAL   | Vanilla Synth | Synthetic Prompting |
-| ------------- | ----- | ------------- | ------------------- |
-| GSM8K (4seed) | 73.1% | 72.7%         | **75.3%**           |
-| Repeat Copy   | 81.3% | 81.3%         | **84.4%**           |
-| Colored Obj   | 94.4% | 93.1%         | **97.3%**           |
-
-**Why this works:** Shao et al.: "The backward process ensures questions are
-answerable and well-defined. The forward process refines the reasoning chain to
-be more precise and consistent with the question."
-
-**Critical conditions for quality:**
-
-| Condition         | Effect on Synthesis                          |
-| ----------------- | -------------------------------------------- |
-| Topic word        | Ensures diversity; without: 62.5% same topic |
-| Target complexity | Controls difficulty; without: much simpler   |
-| Reasoning chain   | Ensures answerability; without: 37.5% wrong  |
-
-WRONG: Synthesize questions directly without reasoning chain first RIGHT:
-Generate reasoning chain first, then matching question (backward process)
-
-**Stacking:** Use synthesized examples to improve any few-shot technique. Works
-with PAL, CoT, or any reasoning chain format.
 
 ---
 
@@ -1124,20 +1038,18 @@ WRONG: `Response could be improved. Some parts unclear.` RIGHT:
 Assuming majority vote always correct.
 
 WRONG: `3/5 say X, so X is correct` RIGHT:
-`Weight by complexity, or use MCR to synthesize evidence from all chains`
+`Use USC to select most consistent, or Multi-Expert to aggregate perspectives`
 
 ---
 
 ## Research Citations
 
-**Primary sources (in project corpus):**
-
-- Chang, E.Y. (2023). "Prompting Large Language Models With the Socratic
-  Method." Stanford University.
+- Chen, X., et al. (2023). "Universal Self-Consistency for Large Language Model
+  Generation." arXiv.
 - Dhuliawala, S., et al. (2023). "Chain-of-Verification Reduces Hallucination in
   Large Language Models." arXiv.
-- Fu, Y., et al. (2023). "Complexity-Based Prompting for Multi-Step Reasoning."
-  arXiv.
+- Diao, S., et al. (2023). "Active Prompting with Chain-of-Thought for Large
+  Language Models." arXiv.
 - George, C. & Stuhlmuller, A. (2023). "Factored Verification: Detecting and
   Reducing Hallucination in Summaries." arXiv.
 - Gou, Z., et al. (2024). "CRITIC: Large Language Models Can Self-Correct with
@@ -1146,32 +1058,25 @@ WRONG: `3/5 say X, so X is correct` RIGHT:
   Yet." arXiv.
 - Khot, T., et al. (2023). "Decomposed Prompting: A Modular Approach for Solving
   Complex Tasks." arXiv.
-- Kramer, O. & Baumann, J. (2024). "Unlocking Structured Thinking in Language
-  Models with Cognitive Prompting." arXiv.
+- Long, D.X., et al. (2024). "Multi-expert Prompting Improves Reliability,
+  Safety and Usefulness of LLMs." arXiv.
 - Madaan, A., et al. (2023). "Self-Refine: Iterative Refinement with
   Self-Feedback." arXiv.
+- Ning, X., et al. (2024). "Skeleton-of-Thought: Prompting LLMs for Efficient
+  Parallel Generation." ICLR.
 - Prasad, A., et al. (2024). "ADAPT: As-Needed Decomposition and Planning with
   Language Models." arXiv.
-- Shao, Z., et al. (2023). "Synthetic Prompting: Generating Chain-of-Thought
-  Demonstrations for Large Language Models." arXiv.
-- Sun, Y., et al. (2025). "Table as Thought: Exploring Structured Thoughts in
-  LLM Reasoning." arXiv.
+- Radha, S., et al. (2024). "Iteration of Thought: Leveraging Inner Dialogue for
+  Autonomous Large Language Model Reasoning." arXiv.
+- Tian, X., et al. (2025). "Think Twice: Enhancing LLM Reasoning by Scaling
+  Multi-round Test-time Thinking." arXiv.
+- Wang, L., et al. (2022). "Successive Prompting for Decomposing Complex
+  Questions." arXiv.
 - Weston, J. & Sukhbaatar, S. (2023). "System 2 Attention (Is Something You
   Might Need Too)." arXiv.
-- Yoran, O., et al. (2023). "Answering Questions by Meta-Reasoning over Multiple
-  Chains of Thought." arXiv.
+- Xu, D., et al. (2023). "Look Before You Leap: Problem Elaboration Prompting
+  Improves Mathematical Reasoning in Large Language Models." arXiv.
 - Zhang, Y., et al. (2024). "Cumulative Reasoning with Large Language Models."
   TMLR.
-- Zhang, Y., Yuan, Y. & Yao, A. (2024). "Meta Prompting for AI Systems."
-  Tsinghua University. arXiv.
-
-**External sources (not in project corpus):**
-
-- Chen, X., et al. (2023). "Universal Self-Consistency for Large Language Model
-  Generation." arXiv. †
-- Diao, S., et al. (2023). "Active Prompting with Chain-of-Thought for Large
-  Language Models." arXiv. †
-- Long, D.X., et al. (2024). "Multi-expert Prompting Improves Reliability,
-  Safety and Usefulness of LLMs." arXiv. †
-- Ning, X., et al. (2024). "Skeleton-of-Thought: Prompting LLMs for Efficient
-  Parallel Generation." ICLR. †
+- Zheng, C., et al. (2023). "Progressive-Hint Prompting Improves Reasoning in
+  Large Language Models." arXiv.

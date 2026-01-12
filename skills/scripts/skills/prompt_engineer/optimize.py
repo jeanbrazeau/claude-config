@@ -64,6 +64,27 @@ def change_format_actions(entity: str = "CHANGE") -> list[str]:
     return lines
 
 
+def change_presentation_actions() -> list[str]:
+    """Change presentation format for Execute steps - shows before/after for each change."""
+    return [
+        "PRESENT CHANGES MADE:",
+        "",
+        "For EACH change applied, show:",
+        "  === CHANGE N: [title] ===",
+        "  Location: [file:lines]",
+        "  BEFORE:",
+        "  ```",
+        "  [original text]",
+        "  ```",
+        "  AFTER:",
+        "  ```",
+        "  [modified text]",
+        "  ```",
+        "",
+        "Then present the complete modified prompt(s).",
+    ]
+
+
 def anti_pattern_audit_actions(
     target: str = "modified prompt",
     context: str | None = None,
@@ -422,7 +443,7 @@ SINGLE_PROMPT_STEPS: dict[int, Step] = {
             "",
             *anti_pattern_audit_actions("modified prompt"),
             "",
-            "Present final optimized prompt with change summary.",
+            *change_presentation_actions(),
         ],
         routing=TerminalRouting(),
         phase="execute",
@@ -505,7 +526,7 @@ ECOSYSTEM_STEPS: dict[int, Step] = {
             "",
             *anti_pattern_audit_actions("ALL modified prompts"),
             "",
-            "Present summary: changes per file + ecosystem changes.",
+            *change_presentation_actions(),
         ],
         routing=TerminalRouting(),
         phase="execute",
@@ -680,7 +701,7 @@ GREENFIELD_STEPS: dict[int, Step] = {
             "",
             *anti_pattern_audit_actions("created prompt"),
             "",
-            "Present complete prompt with design rationale.",
+            *change_presentation_actions(),
         ],
         routing=TerminalRouting(),
         phase="execute",
@@ -748,7 +769,7 @@ PROBLEM_STEPS: dict[int, Step] = {
             "  - Does the change match the diagnosed cause?",
             "  - Could it introduce new issues?",
             "",
-            "Present fix with expected behavior change.",
+            *change_presentation_actions(),
         ],
         routing=TerminalRouting(),
         phase="execute",

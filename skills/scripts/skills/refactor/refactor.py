@@ -48,7 +48,7 @@ def parse_categories() -> list[dict]:
         List of dicts with keys: file, name, start_line, end_line
     """
     categories = []
-    for md_file in ["baseline.md", "local.md", "cross-file.md", "drift.md"]:
+    for md_file in ["baseline.md", "coherence.md", "drift.md"]:
         path = CONVENTIONS_DIR / md_file
         if not path.exists():
             continue
@@ -110,7 +110,7 @@ def format_parallel_dispatch(n: int = DEFAULT_CATEGORY_COUNT) -> str:
     lines.append("  <template>")
     lines.append("    Explore the codebase for this code smell.")
     lines.append("")
-    lines.append(f'    Start: <invoke working-dir=".claude/skills/scripts" cmd="python3 -m {EXPLORE_MODULE_PATH} --step 1 --total-steps 2 --category $CATEGORY_REF" />')
+    lines.append(f'    Start: <invoke working-dir=".claude/skills/scripts" cmd="python3 -m {EXPLORE_MODULE_PATH} --step 1 --total-steps 5 --category $CATEGORY_REF" />')
     lines.append("  </template>")
     lines.append("")
     lines.append("  <categories>")
@@ -215,10 +215,15 @@ Check smell_count from the input:
 <analysis_process>
 Walk through the smells systematically:
 
-1. Categorize each smell by type and abstraction level:
-   - structural: Architecture issues (circular deps, layering violations, god classes)
-   - implementation: Code organization (long methods, duplication, feature envy)
-   - surface: Cosmetic (naming, formatting, dead code, magic numbers)
+1. Categorize each smell by type and abstraction level.
+   These levels are illustrative, not exhaustive -- use judgment for unlisted patterns:
+   - structural: Architecture issues (e.g., circular deps, layering violations, god classes)
+   - implementation: Code organization (e.g., long methods, duplication, feature envy)
+   - surface: Cosmetic (e.g., naming, formatting, dead code, magic numbers)
+
+   DOMAIN TRANSLATION: Before categorizing, consider how each level manifests in THIS project.
+   What are the architectural patterns here? What code organization issues are common?
+   Translate the abstract levels to project-specific concerns.
 
 2. Identify groupings by shared characteristics
 
@@ -404,38 +409,28 @@ Each work item needs:
 - estimated_complexity: low/medium/high
 </work_item_requirements>
 
-<example type="CORRECT">
-```json
-{
-  "title": "Extract authentication logic from UserController to AuthService",
-  "description": "Auth logic duplicated across 3 methods. Extract for testability.",
-  "affected_files": ["src/controllers/UserController.ts", "src/services/AuthService.ts"],
-  "implementation_steps": [
-    "1. Create src/services/AuthService.ts with validateToken() method",
-    "2. Move lines 45-67 from UserController.login() to AuthService",
-    "3. Replace inline auth calls with AuthService calls",
-    "4. Register in DI container"
-  ],
-  "verification_criteria": [
-    "Run: npm test -- --grep 'auth' (12 tests pass)",
-    "Grep: rg 'jwt.verify' src/ (only in AuthService.ts)"
-  ],
-  "dependencies": { "technical": [], "risk": ["ensure auth tests exist"], "obsolescence": ["may resolve smell-3"] },
-  "estimated_complexity": "medium"
-}
-```
-</example>
+<example_generation>
+BEFORE generating work items, create ONE example work item for THIS project:
+  - Use actual file paths from the smells you analyzed
+  - Use the project's language and conventions
+  - Show the level of specificity expected
 
-<example type="INCORRECT">
-```json
-{
-  "title": "Fix auth",
-  "description": "Auth needs cleanup",
-  "implementation_steps": ["Refactor the authentication"]
-}
-```
-The incorrect example lacks specifics. "Refactor the authentication" is not executable.
-</example>
+This self-generated example calibrates your output to the project context.
+</example_generation>
+
+<quality_criteria>
+CORRECT work items have:
+  - Specific title: "Extract X from Y to enable Z" (not "Fix X")
+  - Concrete steps with file paths and line references where known
+  - Verification that can be executed (test commands, grep patterns)
+  - Realistic complexity estimate
+
+INCORRECT work items have:
+  - Vague titles: "Fix auth", "Clean up code"
+  - Abstract steps: "Refactor the authentication"
+  - No verification criteria
+  - Missing file references
+</quality_criteria>
 
 <output_format>
 Output JSON:
