@@ -312,18 +312,39 @@ Mark each issue as:
 If > 10 high-severity issues suppressed, flag as systemic warning.
 </prioritization>
 
-<dependencies>
-For primary issues, identify:
-- technical: Must complete A before B
-- risk: Should complete A before B for safety
-- obsolescence: Completing A may eliminate need for B
-</dependencies>
+<relationships>
+For primary issues, identify relationships using VERB FORMS with explicit direction.
+
+STRUCTURAL (affect execution order):
+- requires: A cannot start until B completes. Format: A requires B
+- enables: A unlocks value from B but B can proceed alone. Format: A enables B
+
+SUPERSESSION (affect what work is needed):
+- obsoletes: Completing A makes B unnecessary. Format: A obsoletes B
+  Example: Refactoring entire module obsoletes fixing small smells in old code.
+- conflicts_with: A and B are mutually exclusive. Format: A conflicts_with B
+
+SYNERGY (affect combined value):
+- amplifies: Doing both together yields more value than sum. Format: A amplifies B
+
+CONTRASTIVE EXAMPLE:
+WRONG: {"type": "obsolescence", "items": ["work-5", "work-6"]}
+  Problem: Direction unclear. Does this item obsolete them, or vice versa?
+
+RIGHT: {"type": "obsoletes", "subject": "issue-2", "object": "issue-5", "reason": "..."}
+  Clear: issue-2 (subject) obsoletes issue-5 (object). Direction is always subject -> object.
+
+Output relationships as:
+[
+  {"type": "obsoletes", "subject": "issue-2", "object": "issue-5", "reason": "StepInfo dataclass replaces dict pattern"}
+]
+</relationships>
 
 <constraint_conflicts>
 If intent conflicts with findings, use concrete examples:
 
 NOT: "There's a conflict between your preferences and the issues."
-USE: "Based on 'quick fixes': 7 items match (under 30min). 3 structural issues don't fit - defer or include?"
+USE: "Based on 'quick fixes': 7 items match (low complexity - single-file mechanical changes). 3 structural issues don't fit - defer or include?"
 </constraint_conflicts>
 
 <output_format>
@@ -342,7 +363,9 @@ Output JSON:
       "id": "issue-1",
       "status": "primary|deferred|appendix",
       "relevance_rationale": "Why this status",
-      "dependencies": { "technical": [], "risk": [], "obsolescence": [] }
+      "relationships": [
+        {"type": "obsoletes|requires|enables|conflicts_with|amplifies", "subject": "issue-1", "object": "issue-N", "reason": "..."}
+      ]
     }
   ],
   "checkpoint_message": "Summary for user",
@@ -377,7 +400,45 @@ Generate actionable work items from the prioritized issues. Each work item shoul
 <input>
 Use the prioritized_issues (status=primary) from Step 4.
 Use the action_type from the intent extraction.
+Use the relationships from each issue.
 </input>
+
+<dependency_resolution>
+BEFORE generating work items, resolve the relationship graph into recommendations.
+
+Step 1 - Build relationship graph:
+  List all relationships from prioritized_issues.
+  Format: subject --[type]--> object (reason)
+
+Step 2 - Identify supersession chains:
+  If A obsoletes B: B should NOT become a work item (A covers it).
+  If A obsoletes B AND B obsoletes C: completing A makes both B and C unnecessary.
+  Mark superseded items with reason.
+
+Step 3 - Identify required groups:
+  If A requires B: B must be done first (or together).
+  If A requires B AND B requires A: they form a "must-do-together" atomic group.
+
+Step 4 - Resolve conflicts:
+  If A conflicts_with B: only one can be done.
+  Choose based on: higher value (obsoletes more items), fewer dependencies, lower complexity.
+  Mark excluded item with reason.
+
+Step 5 - Synthesize recommendations:
+  RECOMMEND items that:
+  - Obsolete other items (consolidate work - prefer comprehensive refactors over small fixes)
+  - Have no unresolved dependencies blocking them
+  - Are not superseded or excluded
+
+  The goal is FEWER, HIGHER-IMPACT work items. Prefer one comprehensive refactor
+  over multiple small fixes when the comprehensive approach obsoletes the small ones.
+
+After resolution, track:
+- recommended: Items to present as work items
+- superseded: Items made unnecessary (note which item supersedes them)
+- excluded: Items excluded due to conflicts (note the resolution rationale)
+- groups: Sets of items that must be done together
+</dependency_resolution>
 
 <step_generation>
 Generate steps appropriate to action_type:
@@ -405,8 +466,14 @@ Each work item needs:
 - affected_files: Specific files that change
 - implementation_steps: Numbered, concrete steps
 - verification_criteria: How to confirm it worked (tests, grep, behavior)
-- dependencies: technical/risk/obsolescence
-- estimated_complexity: low/medium/high
+- obsoletes: List of issues/items this makes unnecessary (from dependency resolution)
+- estimated_complexity: Based on LLM execution characteristics (NOT time):
+    - low: Single file, mechanical transformation, clear pattern
+      Examples: rename symbol, extract constant, add type hints
+    - medium: Multiple files OR cross-file relationship understanding needed
+      Examples: extract method with caller updates, move function between modules
+    - high: Architectural scope, design decisions required, module boundary changes
+      Examples: introduce abstraction layer, restructure data flow, change API contract
 </work_item_requirements>
 
 <example_generation>
@@ -433,36 +500,74 @@ INCORRECT work items have:
 </quality_criteria>
 
 <output_format>
-Output JSON:
-```json
-{
-  "work_items": [
-    {
-      "id": "work-1",
-      "title": "...",
-      "description": "...",
-      "issue_ids": ["issue-1"],
-      "smell_ids": ["smell-1", "smell-2"],
-      "affected_files": ["..."],
-      "implementation_steps": ["1. ...", "2. ..."],
-      "verification_criteria": ["..."],
-      "dependencies": { "technical": [], "risk": [], "obsolescence": [] },
-      "estimated_complexity": "low|medium|high"
-    }
-  ],
-  "recommended_sequence": ["work-1", "work-3", "work-2"],
-  "summary": "Overview of the work"
-}
+Generate a HUMAN-READABLE REPORT optimized for decision-making. Do NOT output raw JSON.
+
+FORMAT:
+
+```
+# Refactoring Recommendation
+
+## Summary
+[2-3 sentences: Core recommendation and expected outcome]
+
+**Recommended:** N work items | **Superseded:** M items | **Total complexity:** [low/medium/high]
+
+---
+
+## Recommended Work Items
+
+[For each recommended item:]
+
+### [work-N]: [Specific Descriptive Title]
+**Complexity:** [low/medium/high] | **Addresses:** [issue IDs]
+
+[1-2 sentences: What this accomplishes and why it matters]
+
+**Obsoletes:** [list items made unnecessary by this work, or "None"]
+
+**Approach:**
+1. [Concrete step with file reference]
+2. [Next step]
+...
+
+**Verification:**
+- [Test command, grep pattern, or behavioral check]
+
+---
+
+## Superseded Items (No Action Needed)
+
+[If any items were superseded by recommended work:]
+
+| Originally Identified | Superseded By | Reason |
+|-----------------------|---------------|--------|
+| [issue description]   | work-N        | [why this work makes the original unnecessary] |
+
+[If none: "All identified issues require direct action."]
+
+---
+
+## Execution Notes
+
+[If dependencies exist between recommended items:]
+**Suggested order:** work-N -> work-M -> work-K
+**Reason:** [explain sequencing based on requires/enables relationships]
+
+[If atomic groups exist:]
+**Must do together:** work-A and work-B (mutual dependency)
+
+---
 ```
 </output_format>
 
 <edge_cases>
-- Single issue: Single work item, no sequencing.
-- Circular deps: Flag warning, suggest breaking cycle.
-- No code context: Approach-level steps, note line-specific needs code access.
+- Single issue: Single work item, simplified format without tables.
+- Mutual dependencies: Present as atomic group that must be done together.
+- No code context: Approach-level steps, note that line-specific details require code access.
+- All items independent: Note that items can be done in any order.
 </edge_cases>
 
-Output the work_items JSON, then present the summary and recommended sequence to the user."""
+Present the report directly to the user. The report should be immediately actionable for deciding what refactoring to pursue."""
 
 
 # =============================================================================
