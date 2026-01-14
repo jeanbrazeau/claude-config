@@ -40,6 +40,158 @@ skills/
   leon-writing-style/      # Style-matched content generation
 ```
 
+## Beads Integration
+
+Skills optionally integrate with [beads](https://github.com/solatis/beads) (`bd`) for persistent cross-session issue tracking. Integration is graceful - skills function normally when beads is unavailable.
+
+### Type-Safe API
+
+The `skills.lib.beads` module provides a type-safe wrapper around `bd` CLI commands:
+
+```python
+from skills.lib.beads import (
+    IssueType, IssueStatus, DependencyType,  # Enums for type safety
+    IssueId, IssueData,                      # Value objects
+    is_beads_available, create_issue,        # API functions
+)
+
+# Type-safe issue creation
+if is_beads_available():
+    issue_id = create_issue(
+        title="Implement authentication",
+        issue_type=IssueType.FEATURE,        # Enum prevents typos
+        priority=1,
+        labels=["security", "backend"],
+        deps=["AUTH-001"],                   # Accepts strings or IssueId objects
+    )
+    # Returns: IssueId(id="AUTH-002") or None
+
+    # Type-safe status updates
+    update_status(issue_id, IssueStatus.IN_PROGRESS)  # Enum provides autocomplete
+
+    # Structured query results
+    ready_issues = get_ready_issues(priority=1)
+    # Returns: list[IssueData] with typed fields (id, title, priority, type, status)
+```
+
+**Benefits over raw strings:**
+- Compile-time validation: Invalid enum values caught by type checker
+- IDE autocomplete: Enums list all valid values
+- Runtime validation: IssueId verifies format (e.g., "PRJ-123")
+- Structured returns: IssueData replaces dict with typed fields
+- Backward compatible: Functions accept both enums and strings
+
+**Available types:**
+- `IssueType`: BUG, FEATURE, TASK, EPIC, CHORE
+- `IssueStatus`: OPEN, IN_PROGRESS, BLOCKED, CLOSED
+- `DependencyType`: BLOCKS, RELATED, PARENT_CHILD, DISCOVERED_FROM
+- `IssueId`: Value object with format validation (matches `[A-Z]+-\d+`)
+- `IssueData`: Structured issue information (replaces `list[dict]`)
+
+### Integration Points
+
+**Planner skill** creates and tracks issues across planning and execution phases:
+
+1. **Planning (planner.py step 5)**: After writing plan, optionally create:
+   - Feature issue (epic) for the overall goal
+   - Milestone issues (tasks) for each implementation wave
+   - Dependency links between milestones
+
+2. **Execution (executor.py steps 1, 3, 9)**:
+   - **Step 1 (Wave Planning)**: Search for existing issues, note milestone IDs
+   - **Step 3 (Implementation)**: Update milestone status as work progresses
+   - **Step 9 (Retrospective)**: Close completed milestones and parent feature
+
+**Feature flag pattern:**
+```python
+# In STEPS configuration
+STEPS = {
+    1: {
+        "title": "Wave Planning",
+        "beads_tracking": True,  # Enable beads guidance for this step
+    },
+}
+
+# In step formatter
+if info.get("beads_tracking") and is_beads_available():
+    actions.extend([
+        "OPTIONAL BEADS TRACKING:",
+        "  bd update [MILESTONE-ID] --status in_progress",
+        "  bd close [MILESTONE-ID] \"Completed\"",
+    ])
+```
+
+**Flags:**
+- `beads_tracking`: Enable issue tracking guidance (planner step 5, executor steps 1, 3)
+- `beads_close`: Enable close guidance in retrospective (executor step 9)
+
+**Graceful degradation:** All beads calls check `is_beads_available()` first. When beads unavailable:
+- `create_issue()` returns None (caller handles gracefully)
+- `update_status()`, `close_issue()` return False (no-op)
+- `get_ready_issues()` returns empty list
+- Skills continue normally using TodoWrite for in-session tracking
+
+### Usage Examples
+
+**Creating issues in planner:**
+```python
+from skills.lib.beads import IssueType, create_issue
+
+# Create parent feature issue
+feature_id = create_issue(
+    title="Implement user authentication system",
+    issue_type=IssueType.FEATURE,
+    description="OAuth2 + JWT tokens + role-based access",
+    priority=1,
+)
+
+# Create milestone issues with dependencies
+milestone_ids = []
+for i, milestone in enumerate(plan.milestones):
+    mid = create_issue(
+        title=f"Milestone {i+1}: {milestone.title}",
+        issue_type=IssueType.TASK,
+        priority=2,
+        deps=[str(feature_id)] if feature_id else [],  # Link to parent
+    )
+    milestone_ids.append(mid)
+```
+
+**Tracking progress in executor:**
+```python
+from skills.lib.beads import IssueStatus, update_status, close_issue
+
+# Starting a milestone
+update_status("AUTH-002", IssueStatus.IN_PROGRESS)
+
+# After completion
+close_issue("AUTH-002", reason="All code implemented and tests passing")
+```
+
+**Querying ready work:**
+```python
+from skills.lib.beads import get_ready_issues
+
+# Get high-priority issues with no blockers
+ready = get_ready_issues(priority=1)
+for issue in ready:
+    # issue is IssueData with typed fields
+    print(f"{issue.id}: {issue.title} [{issue.priority}]")
+```
+
+### Why Beads Integration
+
+**Cross-session continuity:** Skills like planner create work that spans multiple sessions. Beads persists:
+- Feature scope and milestones across conversation compaction
+- Blocked/ready status for resuming work
+- Dependency chains for complex features
+
+**Without beads:** TodoWrite tracks in-session work but doesn't persist across sessions. After compaction, agent loses context about multi-session features.
+
+**With beads:** Issues survive compaction. Agent can resume by querying `bd ready` to find unblocked work, review issue descriptions for context, and continue from previous session's stopping point.
+
+**Optional by design:** Not all skills need persistence. Analysis skills (refactor, codebase-analysis) produce output consumed immediately. Only planner creates multi-session tracking issues.
+
 ## Data Flow
 
 ```
