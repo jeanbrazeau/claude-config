@@ -5,15 +5,67 @@ execute in projects with beads initialized. Gracefully falls back when
 beads is not available.
 
 Usage:
-    from skills.lib.beads import is_beads_available, create_issue
+    from skills.lib.beads import is_beads_available, create_issue, IssueType
 
     if is_beads_available():
-        issue_id = create_issue(title="Feature X", issue_type="feature")
+        issue_id = create_issue(title="Feature X", issue_type=IssueType.FEATURE)
 """
 
 import subprocess
 import re
-from typing import Optional
+from dataclasses import dataclass
+from enum import Enum
+
+
+class IssueType(str, Enum):
+    """Valid beads issue types."""
+    BUG = "bug"
+    FEATURE = "feature"
+    TASK = "task"
+    EPIC = "epic"
+    CHORE = "chore"
+
+
+class IssueStatus(str, Enum):
+    """Valid beads issue statuses."""
+    OPEN = "open"
+    IN_PROGRESS = "in_progress"
+    BLOCKED = "blocked"
+    CLOSED = "closed"
+
+
+class DependencyType(str, Enum):
+    """Valid beads dependency types."""
+    BLOCKS = "blocks"
+    RELATED = "related"
+    PARENT_CHILD = "parent-child"
+    DISCOVERED_FROM = "discovered-from"
+
+
+@dataclass
+class IssueId:
+    """Value object wrapping a beads issue ID with validation."""
+    id: str
+
+    def __post_init__(self):
+        """Validate issue ID format."""
+        if not re.match(r'^[A-Z]+-\d+$', self.id):
+            raise ValueError(f"Invalid issue ID format: {self.id}")
+
+    def __str__(self) -> str:
+        return self.id
+
+
+@dataclass
+class IssueData:
+    """Structured issue data returned from beads queries."""
+    id: str
+    title: str
+    priority: int | None = None
+    issue_type: IssueType | None = None
+    status: IssueStatus | None = None
+    labels: list[str] | None = None
+    deps: list[str] | None = None
 
 
 def is_beads_available() -> bool:
@@ -36,29 +88,32 @@ def is_beads_available() -> bool:
 
 def create_issue(
     title: str,
-    issue_type: str = "task",
+    issue_type: IssueType | str = IssueType.TASK,
     description: str = "",
     priority: int = 2,
-    labels: list[str] = None,
-    deps: list[str] = None,
-) -> Optional[str]:
+    labels: list[str] | None = None,
+    deps: list[str | IssueId] | None = None,
+) -> IssueId | None:
     """Create a beads issue and return its ID.
 
     Args:
         title: Issue title
-        issue_type: bug, feature, task, epic, chore
+        issue_type: IssueType enum or string (bug, feature, task, epic, chore)
         description: Issue description
         priority: 1 (high) to 3 (low), default 2
         labels: List of label strings
-        deps: List of issue IDs this depends on
+        deps: List of issue IDs (strings or IssueId objects) this depends on
 
     Returns:
-        Issue ID (e.g., "CFG-001") or None if creation failed
+        IssueId object or None if creation failed
     """
     if not is_beads_available():
         return None
 
-    cmd = ["bd", "create", "--type", issue_type, "--title", title]
+    # Convert issue_type to string for command (handles both enum and str)
+    type_str = issue_type.value if isinstance(issue_type, IssueType) else issue_type
+
+    cmd = ["bd", "create", "--type", type_str, "--title", title]
 
     if description:
         cmd.extend(["--description", description])
@@ -68,24 +123,27 @@ def create_issue(
         cmd.extend(["--labels", ",".join(labels)])
     if deps:
         for dep in deps:
-            cmd.extend(["--deps", dep])
+            # Handle both string and IssueId types
+            dep_str = str(dep) if isinstance(dep, IssueId) else dep
+            cmd.extend(["--deps", dep_str])
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
         if result.returncode == 0:
-            return _extract_issue_id(result.stdout)
+            issue_id_str = _extract_issue_id(result.stdout)
+            return IssueId(id=issue_id_str) if issue_id_str else None
     except subprocess.TimeoutExpired:
         pass
 
     return None
 
 
-def update_status(issue_id: str, status: str) -> bool:
+def update_status(issue_id: str | IssueId, status: IssueStatus | str) -> bool:
     """Update issue status.
 
     Args:
-        issue_id: Issue ID (e.g., "CFG-001")
-        status: open, in_progress, blocked, closed
+        issue_id: Issue ID string or IssueId object (e.g., "CFG-001")
+        status: IssueStatus enum or string (open, in_progress, blocked, closed)
 
     Returns:
         True if update succeeded
@@ -93,9 +151,13 @@ def update_status(issue_id: str, status: str) -> bool:
     if not is_beads_available():
         return False
 
+    # Convert types to strings for command
+    id_str = str(issue_id) if isinstance(issue_id, IssueId) else issue_id
+    status_str = status.value if isinstance(status, IssueStatus) else status
+
     try:
         result = subprocess.run(
-            ["bd", "update", issue_id, "--status", status],
+            ["bd", "update", id_str, "--status", status_str],
             capture_output=True,
             timeout=5,
         )
@@ -104,11 +166,11 @@ def update_status(issue_id: str, status: str) -> bool:
         return False
 
 
-def close_issue(issue_id: str, reason: str = "Completed") -> bool:
+def close_issue(issue_id: str | IssueId, reason: str = "Completed") -> bool:
     """Close an issue.
 
     Args:
-        issue_id: Issue ID (e.g., "CFG-001")
+        issue_id: Issue ID string or IssueId object (e.g., "CFG-001")
         reason: Closure reason
 
     Returns:
@@ -117,9 +179,12 @@ def close_issue(issue_id: str, reason: str = "Completed") -> bool:
     if not is_beads_available():
         return False
 
+    # Convert to string for command
+    id_str = str(issue_id) if isinstance(issue_id, IssueId) else issue_id
+
     try:
         result = subprocess.run(
-            ["bd", "close", issue_id, "--reason", reason],
+            ["bd", "close", id_str, "--reason", reason],
             capture_output=True,
             timeout=5,
         )
@@ -128,13 +193,17 @@ def close_issue(issue_id: str, reason: str = "Completed") -> bool:
         return False
 
 
-def add_dependency(issue_id: str, depends_on: str, dep_type: str = "blocks") -> bool:
+def add_dependency(
+    issue_id: str | IssueId,
+    depends_on: str | IssueId,
+    dep_type: DependencyType | str = DependencyType.BLOCKS
+) -> bool:
     """Add a dependency between issues.
 
     Args:
-        issue_id: The issue that has a dependency
-        depends_on: The issue that blocks this one
-        dep_type: blocks, related, parent-child, discovered-from
+        issue_id: The issue that has a dependency (string or IssueId)
+        depends_on: The issue that blocks this one (string or IssueId)
+        dep_type: DependencyType enum or string (blocks, related, parent-child, discovered-from)
 
     Returns:
         True if dependency added successfully
@@ -142,9 +211,14 @@ def add_dependency(issue_id: str, depends_on: str, dep_type: str = "blocks") -> 
     if not is_beads_available():
         return False
 
+    # Convert all types to strings for command
+    id_str = str(issue_id) if isinstance(issue_id, IssueId) else issue_id
+    depends_str = str(depends_on) if isinstance(depends_on, IssueId) else depends_on
+    type_str = dep_type.value if isinstance(dep_type, DependencyType) else dep_type
+
     try:
         result = subprocess.run(
-            ["bd", "dep", issue_id, depends_on, "--type", dep_type],
+            ["bd", "dep", id_str, depends_str, "--type", type_str],
             capture_output=True,
             timeout=5,
         )
@@ -153,7 +227,7 @@ def add_dependency(issue_id: str, depends_on: str, dep_type: str = "blocks") -> 
         return False
 
 
-def get_ready_issues(assignee: str = None, priority: int = None) -> list[dict]:
+def get_ready_issues(assignee: str | None = None, priority: int | None = None) -> list[IssueData]:
     """Get issues that are ready to work (no blockers).
 
     Args:
@@ -161,7 +235,7 @@ def get_ready_issues(assignee: str = None, priority: int = None) -> list[dict]:
         priority: Filter by priority
 
     Returns:
-        List of issue dicts with keys: id, title, priority, type
+        List of IssueData objects with structured issue information
     """
     if not is_beads_available():
         return []
@@ -182,29 +256,35 @@ def get_ready_issues(assignee: str = None, priority: int = None) -> list[dict]:
     return []
 
 
-def _extract_issue_id(output: str) -> Optional[str]:
+def _extract_issue_id(output: str) -> str | None:
     """Extract issue ID from bd create output.
 
     Expected format: "Created issue CFG-001" or similar
+
+    Returns:
+        Issue ID string or None if not found
     """
     # Match pattern like CFG-001, PROJ-123, etc.
     match = re.search(r'\b([A-Z]+-\d+)\b', output)
     return match.group(1) if match else None
 
 
-def _parse_issue_list(output: str) -> list[dict]:
-    """Parse bd list/ready output into structured data.
+def _parse_issue_list(output: str) -> list[IssueData]:
+    """Parse bd list/ready output into structured IssueData objects.
 
     This is a simple parser - beads may output in various formats.
     Adjust as needed based on actual bd output format.
+
+    Returns:
+        List of IssueData objects parsed from output
     """
     issues = []
     # Basic parsing - adjust based on actual bd output
     for line in output.split('\n'):
         match = re.match(r'\s*([A-Z]+-\d+)\s+(.+)', line)
         if match:
-            issues.append({
-                'id': match.group(1),
-                'title': match.group(2).strip(),
-            })
+            issues.append(IssueData(
+                id=match.group(1),
+                title=match.group(2).strip(),
+            ))
     return issues

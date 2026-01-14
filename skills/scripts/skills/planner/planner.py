@@ -289,7 +289,7 @@ STEPS = {
             "Write plan with Code Intent (no diffs yet).",
             "Developer fills diffs in step 8.",
         ],
-        "beads_integration": True,  # Flag for post-step beads tracking
+        "beads_tracking": True,  # Flag for post-step beads tracking
     },
     # Review steps (6-13)
     6: {
@@ -455,7 +455,7 @@ def get_step_guidance(step: int, total_steps: int,
         ])
 
     # Add beads integration guidance for step 5
-    if info.get("beads_integration") and is_beads_available():
+    if info.get("beads_tracking") and is_beads_available():
         actions.extend([
             "",
             "═══════════════════════════════════════════════════════════",

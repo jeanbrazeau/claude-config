@@ -72,7 +72,7 @@ STEPS = {
             "  This step is ANALYSIS ONLY. Do NOT delegate yet.",
             "  Record wave groupings for step 3 (Implementation).",
         ],
-        "beads_check": True,  # Flag to check for beads issues
+        "beads_tracking": True,  # Flag to enable beads issue tracking guidance
     },
     2: {
         "title": "Reconciliation",
@@ -110,6 +110,7 @@ STEPS = {
     3: {
         "title": "Implementation",
         # Handled specially in format_output - has normal and fix modes
+        "beads_tracking": True,  # Flag to enable beads milestone tracking guidance
     },
     4: {
         "title": "Code QR",
@@ -249,8 +250,8 @@ def format_step_3_implementation(qr: QRState, total_steps: int, milestone_count:
             "",
         ]
 
-        # Add beads tracking guidance if available
-        if is_beads_available():
+        # Add beads tracking guidance if enabled and available
+        if info.get("beads_tracking") and is_beads_available():
             actions.extend([
                 "OPTIONAL BEADS TRACKING:",
                 "  Before starting each wave:",
@@ -515,7 +516,7 @@ def format_output(step: int, total_steps: int,
         actions.extend(info["actions"])
 
     # Add beads integration guidance for step 1 when available
-    if info.get("beads_check") and is_beads_available():
+    if info.get("beads_tracking") and is_beads_available():
         actions.extend([
             "",
             "═══════════════════════════════════════════════════════════",
